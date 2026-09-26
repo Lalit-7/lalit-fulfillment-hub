@@ -10,6 +10,7 @@ Covers all 4 phases:
 import os
 import psycopg2
 import psycopg2.extras
+from psycopg2 import pool
 from datetime import datetime, timedelta
 from flask import Flask, render_template, request, jsonify, g
 
@@ -17,41 +18,114 @@ app = Flask(__name__)
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 # ---------------------------------------------------------------------------
-# Database helpers
+# Database helpers (Connection Pooling + Auto-reconnect)
 # ---------------------------------------------------------------------------
 
+_pool = None
+
+def get_pool():
+    global _pool
+    if _pool is None and DATABASE_URL:
+        try:
+            _pool = pool.ThreadedConnectionPool(
+                minconn=1,
+                maxconn=10,
+                dsn=DATABASE_URL,
+                sslmode="require"
+            )
+        except Exception as e:
+            print("Failed to initialize connection pool:", e)
+            _pool = None
+    return _pool
+
+
 def get_db():
-    """Get a database connection for the current request."""
+    """Get a pooled database connection for the current request."""
     if "db" not in g:
-        g.db = psycopg2.connect(DATABASE_URL, sslmode="require")
-        g.db.autocommit = False
+        p = get_pool()
+        conn = None
+        from_pool = False
+        if p:
+            try:
+                conn = p.getconn()
+                if conn.closed != 0:
+                    conn = p.getconn()
+                from_pool = True
+            except Exception:
+                conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+                from_pool = False
+        else:
+            conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+            from_pool = False
+
+        conn.autocommit = False
+        g.db = conn
+        g.from_pool = from_pool
     return g.db
 
 
 @app.teardown_appcontext
 def close_db(exception):
     db = g.pop("db", None)
+    from_pool = g.pop("from_pool", False)
     if db is not None:
-        db.close()
+        if from_pool and _pool is not None:
+            try:
+                if exception:
+                    db.rollback()
+                else:
+                    db.commit()
+                _pool.putconn(db)
+            except Exception:
+                try:
+                    db.close()
+                except Exception:
+                    pass
+        else:
+            try:
+                db.close()
+            except Exception:
+                pass
 
 
 def query_db(query, args=(), one=False):
     """Execute a query and return results as list of dicts."""
     db = get_db()
-    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute(query, args)
-    rv = [dict(row) for row in cur.fetchall()]
-    cur.close()
-    return (rv[0] if rv else None) if one else rv
+    try:
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(query, args)
+        rv = [dict(row) for row in cur.fetchall()]
+        cur.close()
+        return (rv[0] if rv else None) if one else rv
+    except (psycopg2.OperationalError, psycopg2.InterfaceError):
+        # Auto-retry on stale pool connection
+        g.pop("db", None)
+        g.pop("from_pool", None)
+        db = get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(query, args)
+        rv = [dict(row) for row in cur.fetchall()]
+        cur.close()
+        return (rv[0] if rv else None) if one else rv
 
 
 def execute_db(query, args=()):
     """Execute a write query and commit."""
     db = get_db()
-    cur = db.cursor()
-    cur.execute(query, args)
-    db.commit()
-    cur.close()
+    try:
+        cur = db.cursor()
+        cur.execute(query, args)
+        db.commit()
+        cur.close()
+    except (psycopg2.OperationalError, psycopg2.InterfaceError):
+        # Auto-retry on stale pool connection
+        g.pop("db", None)
+        g.pop("from_pool", None)
+        db = get_db()
+        cur = db.cursor()
+        cur.execute(query, args)
+        db.commit()
+        cur.close()
 
 
 # ---------------------------------------------------------------------------
@@ -140,17 +214,19 @@ def dashboard():
                 pass
         columns.get(o["status"], []).append(o)
 
-    # Summary strip counts
+    # Summary strip counts (combined into 1 query)
     total_open = sum(len(columns[s]) for s in STATUS_ORDER if s != "shipped")
     priority_at_risk = sum(
         1 for o in orders
         if o["is_priority"] and o["risk"] in ("at_risk", "overdue") and o["status"] != "shipped"
     )
-    open_issues = query_db("SELECT COUNT(*) AS cnt FROM issue WHERE resolved = 0", one=True)["cnt"]
-    pending_transfers = query_db(
-        "SELECT COUNT(*) AS cnt FROM transfer WHERE status IN ('requested', 'in_transit')",
-        one=True
-    )["cnt"]
+    counts = query_db("""
+        SELECT 
+            (SELECT COUNT(*) FROM issue WHERE resolved = 0) AS open_issues,
+            (SELECT COUNT(*) FROM transfer WHERE status IN ('requested', 'in_transit')) AS pending_transfers
+    """, one=True)
+    open_issues = counts["open_issues"] if counts else 0
+    pending_transfers = counts["pending_transfers"] if counts else 0
 
     return render_template(
         "dashboard.html",
@@ -185,15 +261,17 @@ def order_detail(order_id):
         except (ValueError, TypeError):
             pass
 
-    # Items with product + stock info
+    # Items with product + stock info + transfer info (Single fast SQL JOIN, zero N+1)
     items = query_db("""
         SELECT oi.*, p.name AS product_name, p.sku, p.variant,
                COALESCE(sm.quantity, 0) AS stock_main,
-               COALESCE(ss.quantity, 0) AS stock_secondary
+               COALESCE(ss.quantity, 0) AS stock_secondary,
+               t.id AS transfer_id, t.status AS transfer_status
         FROM order_item oi
         JOIN product p ON p.id = oi.product_id
         LEFT JOIN stock sm ON sm.product_id = p.id AND sm.warehouse_id = 1
         LEFT JOIN stock ss ON ss.product_id = p.id AND ss.warehouse_id = 2
+        LEFT JOIN transfer t ON t.product_id = p.id AND t.to_warehouse_id = 1 AND t.status IN ('requested', 'in_transit')
         WHERE oi.order_id = %s
     """, [order_id])
 
@@ -203,12 +281,10 @@ def order_detail(order_id):
         item["only_in_secondary"] = (item["stock_main"] < item["quantity"] and item["stock_secondary"] >= item["quantity"])
         if item["only_in_secondary"]:
             needs_transfer = True
-        # Check if transfer already requested for this product
-        existing_transfer = query_db("""
-            SELECT id, status FROM transfer
-            WHERE product_id = %s AND to_warehouse_id = 1 AND status IN ('requested', 'in_transit')
-        """, [item["product_id"]], one=True)
-        item["transfer_pending"] = existing_transfer
+        if item.get("transfer_id"):
+            item["transfer_pending"] = {"id": item["transfer_id"], "status": item["transfer_status"]}
+        else:
+            item["transfer_pending"] = None
 
     # Issues for this order
     issues = query_db("SELECT * FROM issue WHERE order_id = %s ORDER BY created_at DESC", [order_id])

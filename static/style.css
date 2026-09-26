@@ -934,3 +934,19 @@ a:hover {
         padding: 16px 12px 30px;
     }
 }
+
+/* ----- Instant Navigation Progress Bar ----- */
+#route-progress-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--primary), var(--accent));
+    z-index: 99999;
+    width: 0%;
+    opacity: 0;
+    transition: width 0.25s ease-out, opacity 0.2s ease;
+    box-shadow: 0 0 10px rgba(139, 58, 71, 0.7);
+    pointer-events: none;
+}
+

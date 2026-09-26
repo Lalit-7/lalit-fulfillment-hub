@@ -1,7 +1,139 @@
 /**
  * Fulfillment Hub — Client-side JavaScript
- * All fetch()-based interactions: status advance, pick toggles, transfers, issues
+ * - Instant page transitions & hover prefetching (SPA feel)
+ * - Fetch-based interactions: status advance, pick toggles, transfers, issues
  */
+
+// =========================================================================
+// Instant Navigation & Hover Prefetching
+// =========================================================================
+
+const pageCache = new Map();
+
+function startProgress() {
+    let bar = document.getElementById('route-progress-bar');
+    if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'route-progress-bar';
+        document.body.appendChild(bar);
+    }
+    bar.style.width = '35%';
+    bar.style.opacity = '1';
+    setTimeout(() => {
+        if (bar.style.opacity === '1') bar.style.width = '75%';
+    }, 120);
+}
+
+function endProgress() {
+    const bar = document.getElementById('route-progress-bar');
+    if (bar) {
+        bar.style.width = '100%';
+        setTimeout(() => {
+            bar.style.opacity = '0';
+            setTimeout(() => { bar.style.width = '0%'; }, 200);
+        }, 150);
+    }
+}
+
+async function fetchPage(url) {
+    if (pageCache.has(url)) {
+        return pageCache.get(url);
+    }
+    const res = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const html = await res.text();
+    pageCache.set(url, html);
+    setTimeout(() => pageCache.delete(url), 45000);
+    return html;
+}
+
+function prefetch(url) {
+    if (!url || pageCache.has(url) || url.startsWith('/api') || url.includes('#')) return;
+    fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(res => res.ok ? res.text() : null)
+        .then(html => {
+            if (html) {
+                pageCache.set(url, html);
+                setTimeout(() => pageCache.delete(url), 45000);
+            }
+        })
+        .catch(() => {});
+}
+
+async function navigateTo(url, push = true) {
+    startProgress();
+    try {
+        const html = await fetchPage(url);
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+
+        const newMain = doc.querySelector('.main-content');
+        const currentMain = document.querySelector('.main-content');
+        if (newMain && currentMain) {
+            currentMain.className = newMain.className;
+            currentMain.innerHTML = newMain.innerHTML;
+        }
+
+        if (doc.title) {
+            document.title = doc.title;
+        }
+
+        const currentPath = new URL(url, window.location.origin).pathname;
+        document.querySelectorAll('.top-bar__nav a').forEach(a => {
+            if (a.getAttribute('href') === currentPath) {
+                a.classList.add('active');
+            } else {
+                a.classList.remove('active');
+            }
+        });
+
+        if (push) {
+            window.history.pushState({ url }, '', url);
+        }
+        window.scrollTo(0, 0);
+        endProgress();
+    } catch (err) {
+        endProgress();
+        window.location.href = url;
+    }
+}
+
+// Prefetch on hover and touch
+document.addEventListener('mouseover', function(e) {
+    const anchor = e.target.closest('a');
+    if (anchor && anchor.href && anchor.origin === window.location.origin && !anchor.href.includes('/api/')) {
+        prefetch(anchor.pathname + anchor.search);
+    }
+}, { passive: true });
+
+document.addEventListener('touchstart', function(e) {
+    const anchor = e.target.closest('a');
+    if (anchor && anchor.href && anchor.origin === window.location.origin && !anchor.href.includes('/api/')) {
+        prefetch(anchor.pathname + anchor.search);
+    }
+}, { passive: true });
+
+// Intercept internal link clicks for instant swap
+document.addEventListener('click', function(e) {
+    const anchor = e.target.closest('a');
+    if (!anchor || !anchor.href) return;
+    if (anchor.origin !== window.location.origin) return;
+    if (anchor.target && anchor.target !== '_self') return;
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    if (anchor.pathname.startsWith('/api/')) return;
+    if (anchor.getAttribute('href').startsWith('#')) return;
+
+    e.preventDefault();
+    const dest = anchor.pathname + anchor.search;
+    if (dest === window.location.pathname + window.location.search) return;
+    navigateTo(dest, true);
+});
+
+// Handle Back/Forward browser history
+window.addEventListener('popstate', function() {
+    navigateTo(window.location.pathname + window.location.search, false);
+});
+
 
 // =========================================================================
 // Toast notifications
@@ -25,6 +157,7 @@ function showToast(message, type = 'success') {
     }, 3000);
 }
 
+
 // =========================================================================
 // Order status advance
 // =========================================================================
@@ -38,12 +171,13 @@ async function advanceOrder(orderId) {
             return;
         }
         showToast(`Order advanced to: ${data.status.toUpperCase()}`);
-        // Reload after short delay so user sees the toast
-        setTimeout(() => location.reload(), 600);
+        pageCache.clear();
+        setTimeout(() => navigateTo(window.location.pathname, false), 400);
     } catch (err) {
         showToast('Network error', 'error');
     }
 }
+
 
 // =========================================================================
 // Pick/pack checkbox toggle
@@ -64,39 +198,29 @@ async function togglePick(orderId, itemId, checkbox) {
             return;
         }
 
-        // Update row visual
         const row = checkbox.closest('tr');
-        if (picked) {
-            row.style.opacity = '0.6';
-        } else {
-            row.style.opacity = '1';
+        if (row) {
+            row.style.opacity = picked ? '0.6' : '1';
         }
 
-        // Update advance button state
         const advBtn = document.getElementById('advance-btn');
         const blockBanner = document.getElementById('block-banner');
         if (data.all_picked) {
-            if (advBtn) {
-                advBtn.disabled = false;
-            }
-            if (blockBanner) {
-                blockBanner.style.display = 'none';
-            }
+            if (advBtn) advBtn.disabled = false;
+            if (blockBanner) blockBanner.style.display = 'none';
         } else {
-            if (advBtn) {
-                advBtn.disabled = true;
-            }
-            if (blockBanner) {
-                blockBanner.style.display = 'flex';
-            }
+            if (advBtn) advBtn.disabled = true;
+            if (blockBanner) blockBanner.style.display = 'flex';
         }
 
+        pageCache.delete(window.location.pathname);
         showToast(picked ? 'Item verified ✓' : 'Item unchecked');
     } catch (err) {
         showToast('Network error', 'error');
         checkbox.checked = !picked;
     }
 }
+
 
 // =========================================================================
 // Transfer request
@@ -115,11 +239,13 @@ async function requestTransfer(productId, quantity) {
             return;
         }
         showToast('Transfer requested');
-        setTimeout(() => location.reload(), 600);
+        pageCache.clear();
+        setTimeout(() => navigateTo(window.location.pathname, false), 400);
     } catch (err) {
         showToast('Network error', 'error');
     }
 }
+
 
 // =========================================================================
 // Transfer advance
@@ -134,11 +260,13 @@ async function advanceTransfer(transferId) {
             return;
         }
         showToast(`Transfer → ${data.status.replace('_', ' ').toUpperCase()}`);
-        setTimeout(() => location.reload(), 600);
+        pageCache.clear();
+        setTimeout(() => navigateTo(window.location.pathname, false), 400);
     } catch (err) {
         showToast('Network error', 'error');
     }
 }
+
 
 // =========================================================================
 // Courier update
@@ -153,12 +281,14 @@ async function updateCourier(orderId, selectEl) {
             body: JSON.stringify({ courier })
         });
         if (res.ok) {
+            pageCache.delete(window.location.pathname);
             showToast('Courier updated');
         }
     } catch (err) {
         showToast('Network error', 'error');
     }
 }
+
 
 // =========================================================================
 // Issue flagging
@@ -185,11 +315,13 @@ async function submitIssue(orderId, event) {
             return;
         }
         showToast('Issue flagged');
-        setTimeout(() => location.reload(), 600);
+        pageCache.clear();
+        setTimeout(() => navigateTo(window.location.pathname, false), 400);
     } catch (err) {
         showToast('Network error', 'error');
     }
 }
+
 
 // =========================================================================
 // Issue resolve/unresolve
@@ -217,6 +349,7 @@ async function toggleIssue(issueId, checkbox) {
             noteEl.classList.remove('issue-item__note--resolved');
             showToast('Issue reopened');
         }
+        pageCache.clear();
     } catch (err) {
         showToast('Network error', 'error');
         checkbox.checked = !resolved;
