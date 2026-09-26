@@ -1,0 +1,261 @@
+{% extends "base.html" %}
+{% block title %}{{ order.order_number }} — Fulfillment Hub{% endblock %}
+
+{% block content %}
+<a href="/" class="back-link">← Back to Dashboard</a>
+
+<div class="flex-between mb-2">
+    <h1 class="page-title" style="margin-bottom:0;">
+        {{ order.order_number }}
+        {% if order.is_priority %}
+        <span class="badge badge--priority" style="font-size:0.7rem; vertical-align:middle; margin-left:8px;">Priority</span>
+        {% endif %}
+        {% if order.risk == 'on_track' %}
+            <span class="badge badge--on-track" style="font-size:0.7rem; vertical-align:middle; margin-left:4px;">On Track</span>
+        {% elif order.risk == 'at_risk' %}
+            <span class="badge badge--at-risk" style="font-size:0.7rem; vertical-align:middle; margin-left:4px;">At Risk</span>
+        {% elif order.risk == 'overdue' %}
+            <span class="badge badge--overdue" style="font-size:0.7rem; vertical-align:middle; margin-left:4px;">Overdue</span>
+        {% elif order.risk == 'shipped' %}
+            <span class="badge badge--shipped" style="font-size:0.7rem; vertical-align:middle; margin-left:4px;">Shipped</span>
+        {% endif %}
+    </h1>
+</div>
+
+<!-- Status Pipeline -->
+<div class="status-pipeline">
+    {% for s in STATUS_ORDER %}
+    <div class="status-pipeline__step
+        {% if s == order.status %}status-pipeline__step--active
+        {% elif STATUS_ORDER.index(s) < STATUS_ORDER.index(order.status) %}status-pipeline__step--done{% endif %}">
+        {{ s | replace('_', ' ') | title }}
+    </div>
+    {% endfor %}
+</div>
+
+<div class="detail-grid">
+    <!-- Main column -->
+    <div class="detail-main">
+        <!-- Order Meta -->
+        <div class="card">
+            <div class="card__header">Order Details</div>
+            <div class="card__body">
+                <div class="order-meta">
+                    <div class="order-meta__item">
+                        <span class="order-meta__label">Customer</span>
+                        <span class="order-meta__value">{{ order.customer_name }}</span>
+                    </div>
+                    <div class="order-meta__item">
+                        <span class="order-meta__label">Created</span>
+                        <span class="order-meta__value">{{ order.created_at[:16] | replace('T', ' ') }}</span>
+                    </div>
+                    <div class="order-meta__item">
+                        <span class="order-meta__label">Deadline</span>
+                        <span class="order-meta__value">
+                            {% if order.deadline %}
+                                {{ order.deadline[:16] | replace('T', ' ') }}
+                            {% else %}
+                                —
+                            {% endif %}
+                        </span>
+                    </div>
+                    <div class="order-meta__item">
+                        <span class="order-meta__label">Courier</span>
+                        <span class="order-meta__value">
+                            {% if order.status != 'shipped' %}
+                            <select class="courier-select" onchange="updateCourier({{ order.id }}, this)">
+                                <option value="">— Select —</option>
+                                {% for c in couriers %}
+                                <option value="{{ c }}" {% if order.courier == c %}selected{% endif %}>{{ c }}</option>
+                                {% endfor %}
+                            </select>
+                            {% else %}
+                                {{ order.courier or '—' }}
+                            {% endif %}
+                        </span>
+                    </div>
+                    {% if order.staged_at %}
+                    <div class="order-meta__item">
+                        <span class="order-meta__label">Staged At</span>
+                        <span class="order-meta__value">{{ order.staged_at[:16] | replace('T', ' ') }}</span>
+                    </div>
+                    {% endif %}
+                    {% if order.shipped_at %}
+                    <div class="order-meta__item">
+                        <span class="order-meta__label">Shipped At</span>
+                        <span class="order-meta__value">{{ order.shipped_at[:16] | replace('T', ' ') }}</span>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        {% if order.get('staged_too_long') %}
+        <div class="block-banner">
+            <svg viewBox="0 0 24 24"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+            This order has been staged for more than {{ STAGED_THRESHOLD_HOURS }} hours without courier pickup.
+        </div>
+        {% endif %}
+
+        <!-- Transfer Warning -->
+        {% if needs_transfer and order.status in ('received', 'processing') %}
+        <div class="transfer-warning">
+            <svg viewBox="0 0 24 24"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+            One or more items are only stocked in the Secondary warehouse. A transfer to Main is required before picking.
+        </div>
+        {% endif %}
+
+        <!-- Items Table -->
+        <div class="card">
+            <div class="card__header">
+                Items ({{ items | length }})
+                {% if order.status == 'picking' %}
+                <span class="text-secondary">Check off each item as you verify it</span>
+                {% endif %}
+            </div>
+            <div class="card__body" style="padding:0;">
+                <table class="items-table">
+                    <thead>
+                        <tr>
+                            {% if order.status == 'picking' %}
+                            <th style="width:50px;">✓</th>
+                            {% endif %}
+                            <th>Product</th>
+                            <th>SKU</th>
+                            <th>Variant</th>
+                            <th>Qty</th>
+                            <th>Stock</th>
+                            {% if order.status in ('received', 'processing') and needs_transfer %}
+                            <th>Action</th>
+                            {% endif %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in items %}
+                        <tr style="{% if item.picked_ok and order.status == 'picking' %}opacity:0.6;{% endif %}">
+                            {% if order.status == 'picking' %}
+                            <td>
+                                <input type="checkbox" class="pick-check"
+                                       {% if item.picked_ok %}checked{% endif %}
+                                       onchange="togglePick({{ order.id }}, {{ item.id }}, this)">
+                            </td>
+                            {% endif %}
+                            <td><strong>{{ item.product_name }}</strong></td>
+                            <td><span class="sku">{{ item.sku }}</span></td>
+                            <td><span class="variant">{{ item.variant }}</span></td>
+                            <td>{{ item.quantity }}</td>
+                            <td>
+                                <div class="stock-loc">
+                                    <div class="stock-loc__row">
+                                        <span class="stock-loc__dot {% if item.stock_main > 0 %}stock-loc__dot--main{% else %}stock-loc__dot--empty{% endif %}"></span>
+                                        Main: {{ item.stock_main }}
+                                    </div>
+                                    <div class="stock-loc__row">
+                                        <span class="stock-loc__dot {% if item.stock_secondary > 0 %}stock-loc__dot--secondary{% else %}stock-loc__dot--empty{% endif %}"></span>
+                                        Secondary: {{ item.stock_secondary }}
+                                    </div>
+                                </div>
+                            </td>
+                            {% if order.status in ('received', 'processing') and needs_transfer %}
+                            <td>
+                                {% if item.only_in_secondary %}
+                                    {% if item.transfer_pending %}
+                                        <span class="badge badge--{{ item.transfer_pending.status | replace(' ', '-') }}">
+                                            Transfer {{ item.transfer_pending.status | replace('_', ' ') }}
+                                        </span>
+                                    {% else %}
+                                        <button class="btn btn--accent btn--sm"
+                                                onclick="requestTransfer({{ item.product_id }}, {{ item.quantity }})">
+                                            Request Transfer
+                                        </button>
+                                    {% endif %}
+                                {% endif %}
+                            </td>
+                            {% endif %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Issues for this order -->
+        <div class="card">
+            <div class="card__header">
+                Issues
+                <span class="text-secondary">{{ issues | length }} total</span>
+            </div>
+            <div class="card__body" style="padding:0;">
+                {% for issue in issues %}
+                <div class="issue-item">
+                    <input type="checkbox" class="pick-check issue-item__check"
+                           {% if issue.resolved %}checked{% endif %}
+                           onchange="toggleIssue({{ issue.id }}, this)">
+                    <div class="issue-item__content">
+                        <span class="issue-item__note {% if issue.resolved %}issue-item__note--resolved{% endif %}">
+                            {{ issue.note }}
+                        </span>
+                        <span class="issue-item__meta">
+                            <span>{{ issue.created_at[:16] | replace('T', ' ') }}</span>
+                            {% if issue.resolved %}
+                            <span class="badge badge--resolved">Resolved</span>
+                            {% else %}
+                            <span class="badge badge--open-issue">Open</span>
+                            {% endif %}
+                        </span>
+                    </div>
+                </div>
+                {% else %}
+                <div class="empty-state">No issues flagged</div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="detail-sidebar">
+        <!-- Advance Status -->
+        <div class="card">
+            <div class="card__header">Actions</div>
+            <div class="card__body" style="display:flex; flex-direction:column; gap:12px;">
+                {% if next_status %}
+                    {% if not can_advance and block_reason %}
+                    <div class="block-banner" id="block-banner" style="font-size:0.8rem;">
+                        <svg viewBox="0 0 24 24" style="width:16px;height:16px;"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+                        {{ block_reason }}
+                    </div>
+                    {% endif %}
+                    <button class="btn btn--primary btn--block" id="advance-btn"
+                            onclick="advanceOrder({{ order.id }})"
+                            {% if not can_advance %}disabled{% endif %}>
+                        {% if order.status == 'packing' %}
+                            Mark as Staged
+                        {% elif order.status == 'staged' %}
+                            Confirm Courier Pickup
+                        {% else %}
+                            Advance to {{ next_status | replace('_', ' ') | title }}
+                        {% endif %}
+                    </button>
+                {% else %}
+                    <div class="text-secondary" style="text-align:center; padding:8px 0;">
+                        This order has been shipped.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Flag a Problem (Phase 4) -->
+        {% if order.status != 'shipped' %}
+        <div class="card">
+            <div class="card__header">Flag a Problem</div>
+            <div class="card__body">
+                <form class="issue-form" onsubmit="submitIssue({{ order.id }}, event)">
+                    <textarea placeholder="Describe the problem…" required></textarea>
+                    <button type="submit" class="btn btn--danger btn--block btn--sm">Flag Issue</button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

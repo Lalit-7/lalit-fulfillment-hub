@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Issues — Fulfillment Hub{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Issues</h1>
+
+<div class="card">
+    <div class="card__header">
+        All Flagged Problems
+        <span class="text-secondary">{{ issues | length }} total</span>
+    </div>
+    <div class="card__body" style="padding:0;">
+        {% for issue in issues %}
+        <div class="issue-item">
+            <input type="checkbox" class="pick-check issue-item__check"
+                   {% if issue.resolved %}checked{% endif %}
+                   onchange="toggleIssue({{ issue.id }}, this)">
+            <div class="issue-item__content">
+                <span class="issue-item__note {% if issue.resolved %}issue-item__note--resolved{% endif %}">
+                    {{ issue.note }}
+                </span>
+                <span class="issue-item__meta">
+                    <span>Order: <a href="/order/{{ issue.order_id }}">{{ issue.order_number }}</a></span>
+                    <span>{{ issue.created_at[:16] | replace('T', ' ') }}</span>
+                    {% if issue.resolved %}
+                    <span class="badge badge--resolved">Resolved</span>
+                    {% else %}
+                    <span class="badge badge--open-issue">Open</span>
+                    {% endif %}
+                </span>
+            </div>
+        </div>
+        {% else %}
+        <div class="empty-state">No issues flagged yet</div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

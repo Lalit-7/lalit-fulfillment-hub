@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Transfers — Fulfillment Hub{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Stock Transfers</h1>
+
+<div class="transfer-list">
+    {% for t in transfers %}
+    <div class="transfer-card">
+        <div class="transfer-card__info">
+            <span class="transfer-card__product">{{ t.product_name }} — {{ t.variant }}</span>
+            <span class="transfer-card__detail">
+                SKU: {{ t.sku }} · Qty: {{ t.quantity }} · {{ t.from_warehouse }} → {{ t.to_warehouse }}
+            </span>
+            <span class="transfer-card__detail">
+                Requested: {{ t.created_at[:16] | replace('T', ' ') }}
+            </span>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px;">
+            <span class="badge badge--{{ t.status }}">{{ t.status | replace('_', ' ') | title }}</span>
+            {% if t.status == 'requested' %}
+            <button class="btn btn--primary btn--sm" onclick="advanceTransfer({{ t.id }})">
+                Mark In Transit
+            </button>
+            {% elif t.status == 'in_transit' %}
+            <button class="btn btn--primary btn--sm" onclick="advanceTransfer({{ t.id }})">
+                Complete Transfer
+            </button>
+            {% endif %}
+        </div>
+    </div>
+    {% else %}
+    <div class="card">
+        <div class="card__body">
+            <div class="empty-state">No transfers</div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

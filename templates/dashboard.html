@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Fulfillment Hub{% endblock %}
+
+{% set main_class = "main-content--dashboard" %}
+
+{% block content %}
+<h1 class="page-title">Order Dashboard</h1>
+
+<!-- Summary Strip -->
+<div class="summary-strip">
+    <div class="summary-card">
+        <span class="summary-card__value">{{ total_open }}</span>
+        <span class="summary-card__label">Open Orders</span>
+    </div>
+    <div class="summary-card {% if priority_at_risk > 0 %}summary-card--alert{% endif %}">
+        <span class="summary-card__value">{{ priority_at_risk }}</span>
+        <span class="summary-card__label">Priority At Risk</span>
+    </div>
+    <div class="summary-card {% if open_issues > 0 %}summary-card--warn{% endif %}">
+        <span class="summary-card__value">{{ open_issues }}</span>
+        <span class="summary-card__label">Open Issues</span>
+    </div>
+    <div class="summary-card">
+        <span class="summary-card__value">{{ pending_transfers }}</span>
+        <span class="summary-card__label">Pending Transfers</span>
+    </div>
+</div>
+
+<!-- Kanban Board -->
+<div class="board">
+    {% for status in status_order %}
+    <div class="board__column">
+        <div class="board__column-header">
+            <span>{{ status | replace('_', ' ') | title }}</span>
+            <span class="board__column-count">{{ columns[status] | length }}</span>
+        </div>
+        <div class="board__column-body">
+            {% for order in columns[status] %}
+            <a href="/order/{{ order.id }}" class="order-card" style="text-decoration:none; color:inherit;">
+                <div class="order-card__top">
+                    <span class="order-card__number">{{ order.order_number }}</span>
+                    {% if order.is_priority %}
+                    <span class="badge badge--priority">Priority</span>
+                    {% endif %}
+                </div>
+                <div class="order-card__customer">{{ order.customer_name }}</div>
+                <div class="order-card__bottom">
+                    <span class="order-card__items">{{ order.item_count }} item{{ 's' if order.item_count != 1 }}</span>
+                    {% if order.risk == 'on_track' %}
+                        <span class="badge badge--on-track">On Track</span>
+                    {% elif order.risk == 'at_risk' %}
+                        <span class="badge badge--at-risk">At Risk</span>
+                    {% elif order.risk == 'overdue' %}
+                        <span class="badge badge--overdue">Overdue</span>
+                    {% elif order.risk == 'shipped' %}
+                        <span class="badge badge--shipped">Shipped</span>
+                    {% endif %}
+                </div>
+                {% if order.get('staged_too_long') %}
+                <span class="badge badge--staged-warning">⚠ Staged too long</span>
+                {% endif %}
+            </a>
+            {% else %}
+            <div class="empty-state">No orders</div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

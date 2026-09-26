@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Inventory — Fulfillment Hub{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Inventory</h1>
+
+<div class="card">
+    <div class="card__header">
+        Products × Warehouses
+        <span class="text-secondary">{{ products | length }} products</span>
+    </div>
+    <div class="card__body" style="padding:0; overflow-x:auto;">
+        <table class="inv-table">
+            <thead>
+                <tr>
+                    <th>Product</th>
+                    <th>SKU</th>
+                    <th>Variant</th>
+                    <th style="text-align:right;">Main Warehouse</th>
+                    <th style="text-align:right;">Secondary Warehouse</th>
+                    <th style="text-align:right;">Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in products %}
+                <tr>
+                    <td><strong>{{ p.name }}</strong></td>
+                    <td><span class="sku">{{ p.sku }}</span></td>
+                    <td>{{ p.variant }}</td>
+                    <td style="text-align:right;">
+                        <span class="{% if p.stock_main == 0 %}qty-zero{% elif p.stock_main < 5 %}qty-low{% endif %}">
+                            {{ p.stock_main }}
+                        </span>
+                    </td>
+                    <td style="text-align:right;">
+                        <span class="{% if p.stock_secondary == 0 %}qty-zero{% endif %}">
+                            {{ p.stock_secondary }}
+                        </span>
+                    </td>
+                    <td style="text-align:right;">
+                        <strong>{{ p.stock_main + p.stock_secondary }}</strong>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
