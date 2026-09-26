@@ -11,7 +11,7 @@ import os
 import psycopg2
 import psycopg2.extras
 from psycopg2 import pool
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template, request, jsonify, g
 
 app = Flask(__name__)
@@ -143,6 +143,13 @@ def next_status(current):
     return None
 
 
+IST = timezone(timedelta(hours=5, minutes=30))
+
+def get_now():
+    """Return current Indian Standard Time (IST) as naive datetime for consistency."""
+    return datetime.now(IST).replace(tzinfo=None)
+
+
 def compute_risk(is_priority, deadline_str, status):
     """Return 'on_track', 'at_risk', 'overdue', or None."""
     if status == "shipped":
@@ -156,7 +163,7 @@ def compute_risk(is_priority, deadline_str, status):
             deadline = datetime.fromisoformat(str(deadline_str))
     except (ValueError, TypeError):
         return None
-    now = datetime.now()
+    now = get_now()
     if now > deadline:
         return "overdue"
     remaining = (deadline - now).total_seconds()
@@ -174,7 +181,7 @@ def compute_risk(is_priority, deadline_str, status):
 def inject_helpers():
     return {
         "compute_risk": compute_risk,
-        "now": datetime.now,
+        "now": get_now,
         "STAGED_THRESHOLD_HOURS": STAGED_THRESHOLD_HOURS,
         "timedelta": timedelta,
     }
@@ -208,7 +215,7 @@ def dashboard():
                     staged_time = staged_val
                 else:
                     staged_time = datetime.fromisoformat(str(staged_val))
-                if (datetime.now() - staged_time).total_seconds() > STAGED_THRESHOLD_HOURS * 3600:
+                if (get_now() - staged_time).total_seconds() > STAGED_THRESHOLD_HOURS * 3600:
                     o["staged_too_long"] = True
             except (ValueError, TypeError):
                 pass
@@ -256,7 +263,7 @@ def order_detail(order_id):
                 staged_time = staged_val
             else:
                 staged_time = datetime.fromisoformat(str(staged_val))
-            if (datetime.now() - staged_time).total_seconds() > STAGED_THRESHOLD_HOURS * 3600:
+            if (get_now() - staged_time).total_seconds() > STAGED_THRESHOLD_HOURS * 3600:
                 order["staged_too_long"] = True
         except (ValueError, TypeError):
             pass
@@ -379,12 +386,12 @@ def api_advance_order(order_id):
     if nxt == "staged":
         execute_db(
             'UPDATE "order" SET status = %s, staged_at = %s WHERE id = %s',
-            [nxt, datetime.now().isoformat(), order_id]
+            [nxt, get_now().isoformat(), order_id]
         )
     elif nxt == "shipped":
         execute_db(
             'UPDATE "order" SET status = %s, shipped_at = %s WHERE id = %s',
-            [nxt, datetime.now().isoformat(), order_id]
+            [nxt, get_now().isoformat(), order_id]
         )
     else:
         execute_db('UPDATE "order" SET status = %s WHERE id = %s', [nxt, order_id])
@@ -470,7 +477,7 @@ def api_request_transfer():
     execute_db("""
         INSERT INTO transfer (product_id, quantity, from_warehouse_id, to_warehouse_id, status, created_at)
         VALUES (%s, %s, 2, 1, 'requested', %s)
-    """, [product_id, quantity, datetime.now().isoformat()])
+    """, [product_id, quantity, get_now().isoformat()])
 
     return jsonify({"ok": True})
 
@@ -559,7 +566,7 @@ def api_create_issue(order_id):
         return jsonify({"error": "Note is required"}), 400
     execute_db(
         "INSERT INTO issue (order_id, note, created_at, resolved) VALUES (%s, %s, %s, 0)",
-        [order_id, note, datetime.now().isoformat()]
+        [order_id, note, get_now().isoformat()]
     )
     return jsonify({"ok": True})
 
