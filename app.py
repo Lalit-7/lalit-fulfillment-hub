@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template, request, jsonify, g
 
 app = Flask(__name__)
-DATABASE_URL = os.environ.get("DATABASE_URL")
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip() or None
 
 # ---------------------------------------------------------------------------
 # Database helpers (Simple per-request connection — Supabase pooler handles
