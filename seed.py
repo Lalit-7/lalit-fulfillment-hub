@@ -301,7 +301,7 @@ def main():
         print("Example: set DATABASE_URL=postgresql://user:pass@host/dbname")
         return
 
-    conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+    conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
 
     # Drop existing tables in reverse dependency order

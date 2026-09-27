@@ -10,7 +10,6 @@ Covers all 4 phases:
 import os
 import psycopg2
 import psycopg2.extras
-from psycopg2 import pool
 from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template, request, jsonify, g
 
@@ -18,114 +17,48 @@ app = Flask(__name__)
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 # ---------------------------------------------------------------------------
-# Database helpers (Connection Pooling + Auto-reconnect)
+# Database helpers (Simple per-request connection — Supabase pooler handles
+# server-side connection reuse, so app-level pooling is not needed and
+# actually breaks on Vercel's serverless environment.)
 # ---------------------------------------------------------------------------
 
-_pool = None
-
-def get_pool():
-    global _pool
-    if _pool is None and DATABASE_URL:
-        try:
-            _pool = pool.ThreadedConnectionPool(
-                minconn=1,
-                maxconn=10,
-                dsn=DATABASE_URL,
-                sslmode="require"
-            )
-        except Exception as e:
-            print("Failed to initialize connection pool:", e)
-            _pool = None
-    return _pool
-
-
 def get_db():
-    """Get a pooled database connection for the current request."""
+    """Get a database connection for the current request."""
     if "db" not in g:
-        p = get_pool()
-        conn = None
-        from_pool = False
-        if p:
-            try:
-                conn = p.getconn()
-                if conn.closed != 0:
-                    conn = p.getconn()
-                from_pool = True
-            except Exception:
-                conn = psycopg2.connect(DATABASE_URL, sslmode="require")
-                from_pool = False
-        else:
-            conn = psycopg2.connect(DATABASE_URL, sslmode="require")
-            from_pool = False
-
-        conn.autocommit = False
-        g.db = conn
-        g.from_pool = from_pool
+        g.db = psycopg2.connect(DATABASE_URL)
+        g.db.autocommit = False
     return g.db
 
 
 @app.teardown_appcontext
 def close_db(exception):
     db = g.pop("db", None)
-    from_pool = g.pop("from_pool", False)
     if db is not None:
-        if from_pool and _pool is not None:
-            try:
-                if exception:
-                    db.rollback()
-                else:
-                    db.commit()
-                _pool.putconn(db)
-            except Exception:
-                try:
-                    db.close()
-                except Exception:
-                    pass
-        else:
-            try:
-                db.close()
-            except Exception:
-                pass
+        try:
+            if exception:
+                db.rollback()
+            db.close()
+        except Exception:
+            pass
 
 
 def query_db(query, args=(), one=False):
     """Execute a query and return results as list of dicts."""
     db = get_db()
-    try:
-        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute(query, args)
-        rv = [dict(row) for row in cur.fetchall()]
-        cur.close()
-        return (rv[0] if rv else None) if one else rv
-    except (psycopg2.OperationalError, psycopg2.InterfaceError):
-        # Auto-retry on stale pool connection
-        g.pop("db", None)
-        g.pop("from_pool", None)
-        db = get_db()
-        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute(query, args)
-        rv = [dict(row) for row in cur.fetchall()]
-        cur.close()
-        return (rv[0] if rv else None) if one else rv
+    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(query, args)
+    rv = [dict(row) for row in cur.fetchall()]
+    cur.close()
+    return (rv[0] if rv else None) if one else rv
 
 
 def execute_db(query, args=()):
     """Execute a write query and commit."""
     db = get_db()
-    try:
-        cur = db.cursor()
-        cur.execute(query, args)
-        db.commit()
-        cur.close()
-    except (psycopg2.OperationalError, psycopg2.InterfaceError):
-        # Auto-retry on stale pool connection
-        g.pop("db", None)
-        g.pop("from_pool", None)
-        db = get_db()
-        cur = db.cursor()
-        cur.execute(query, args)
-        db.commit()
-        cur.close()
+    cur = db.cursor()
+    cur.execute(query, args)
+    db.commit()
+    cur.close()
 
 
 # ---------------------------------------------------------------------------
