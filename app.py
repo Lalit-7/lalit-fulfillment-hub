@@ -514,6 +514,40 @@ def api_resolve_issue(issue_id):
 
 
 # =========================================================================
+# Debug / error diagnostics (temporary — remove after deployment works)
+# =========================================================================
+
+@app.errorhandler(500)
+def handle_500(e):
+    import traceback
+    tb = traceback.format_exc()
+    return f"<pre>500 Internal Server Error\n\nDATABASE_URL set: {bool(DATABASE_URL)}\nDATABASE_URL host: {DATABASE_URL.split('@')[1].split('/')[0] if DATABASE_URL and '@' in DATABASE_URL else 'N/A'}\n\n{tb}</pre>", 500
+
+
+@app.route("/debug")
+def debug_route():
+    import traceback
+    info = {
+        "DATABASE_URL_set": bool(DATABASE_URL),
+        "DATABASE_URL_host": DATABASE_URL.split("@")[1].split("/")[0] if DATABASE_URL and "@" in DATABASE_URL else "N/A",
+    }
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM \"order\"")
+        count = cur.fetchone()[0]
+        info["db_connected"] = True
+        info["order_count"] = count
+        cur.close()
+        conn.close()
+    except Exception as e:
+        info["db_connected"] = False
+        info["db_error"] = str(e)
+        info["traceback"] = traceback.format_exc()
+    return f"<pre>{info}</pre>"
+
+
+# =========================================================================
 # Run
 # =========================================================================
 
@@ -523,3 +557,4 @@ if __name__ == "__main__":
         print("Example: set DATABASE_URL=postgresql://user:pass@host/dbname")
     else:
         app.run(debug=True, port=5000)
+
