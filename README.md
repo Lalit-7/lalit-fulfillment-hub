@@ -2,6 +2,8 @@
 
 This app helps a small e-commerce team track orders from the moment they come in until they're shipped out. It replaces messy spreadsheets with a simple visual board.
 
+🔗 **Live Demo:** [fulfillment-hub-delta.vercel.app](https://fulfillment-hub-delta.vercel.app/)
+
 ## The Problem
 
 A small online store gets 200–300 orders every day. Right now the team uses spreadsheets and shared folders to manage everything. Orders get lost, priority shipments miss their deadlines, and nobody knows where things stand at a glance.
