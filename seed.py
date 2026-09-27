@@ -138,73 +138,76 @@ def seed(cur):
     couriers = ["Delhivery", "BlueDart", "DTDC", "Ecom Express", "Shadowfax"]
 
     order_templates = [
+        # (status, is_priority, deadline_offset_hours, courier, created_ago_hours, staged_ago_hours)
+        # deadline_offset: positive = future (ON TRACK/AT RISK), negative = past (OVERDUE)
+        # Risk: >3h left = on_track, <3h left = at_risk, negative = overdue
+
         # --- Received (16 orders) ---
-        ("received", False, 48, None, 1),
-        ("received", False, 36, None, 2),
-        ("received", True, 6, None, 0.5),
-        ("received", True, 1.5, None, 0.3),
-        ("received", False, 24, None, 3),
-        ("received", True, -1, None, 4),
-        ("received", False, 30, None, 0.8),
-        ("received", False, 44, None, 1.5),
-        ("received", True, 2.5, None, 0.4),
-        ("received", False, 18, None, 2.5),
-        ("received", False, 60, None, 0.2),
-        ("received", True, 10, None, 1),
-        ("received", False, 28, None, 3.5),
-        ("received", False, 42, None, 0.7),
-        ("received", True, -2, None, 5),
-        ("received", False, 20, None, 1.2),
+        # Mix: mostly ON TRACK, a few PRIORITY+AT RISK, a couple PRIORITY+OVERDUE
+        ("received", False, 48,   None,          1,    None),     # ON TRACK
+        ("received", False, 36,   None,          2,    None),     # ON TRACK
+        ("received", True,  2,    None,          0.5,  None),     # PRIORITY + AT RISK (<3h)
+        ("received", True,  -1,   None,          4,    None),     # PRIORITY + OVERDUE
+        ("received", False, 24,   None,          3,    None),     # ON TRACK
+        ("received", True,  -2,   None,          5,    None),     # PRIORITY + OVERDUE
+        ("received", False, 30,   None,          0.8,  None),     # ON TRACK
+        ("received", False, 44,   None,          1.5,  None),     # ON TRACK
+        ("received", True,  1.5,  None,          0.4,  None),     # PRIORITY + AT RISK (<3h)
+        ("received", False, 18,   None,          2.5,  None),     # ON TRACK
+        ("received", False, 60,   None,          0.2,  None),     # ON TRACK
+        ("received", True,  10,   None,          1,    None),     # PRIORITY + ON TRACK
+        ("received", False, 28,   None,          3.5,  None),     # ON TRACK
+        ("received", False, 42,   None,          0.7,  None),     # ON TRACK
+        ("received", True,  8,    None,          0.5,  None),     # PRIORITY + ON TRACK
+        ("received", False, 20,   None,          1.2,  None),     # ON TRACK
 
         # --- Processing (5 orders) ---
-        ("processing", False, 30, "Delhivery", 5),
-        ("processing", True, 4, "BlueDart", 2),
-        ("processing", False, 20, "DTDC", 6),
-        ("processing", True, 2, "Delhivery", 3),
-        ("processing", False, 40, None, 4),
+        ("processing", False, 30,  "Delhivery",  5,    None),     # ON TRACK
+        ("processing", True,  2,   "BlueDart",   2,    None),     # PRIORITY + AT RISK
+        ("processing", False, 20,  "DTDC",       6,    None),     # ON TRACK
+        ("processing", True,  -0.5,"Delhivery",  8,    None),     # PRIORITY + OVERDUE
+        ("processing", False, 40,  None,         4,    None),     # ON TRACK
 
         # --- Picking (5 orders) ---
-        ("picking", False, 18, "Ecom Express", 8),
-        ("picking", True, 5, "BlueDart", 4),
-        ("picking", False, 12, "Delhivery", 10),
-        ("picking", True, 1, "Shadowfax", 6),
-        ("picking", False, 24, "DTDC", 7),
+        ("picking", False, 18,     "Ecom Express", 8,  None),     # ON TRACK
+        ("picking", True,  1.5,    "BlueDart",     4,  None),     # PRIORITY + AT RISK
+        ("picking", False, 12,     "Delhivery",   10,  None),     # ON TRACK
+        ("picking", True,  -1,     "Shadowfax",    6,  None),     # PRIORITY + OVERDUE
+        ("picking", False, 24,     "DTDC",         7,  None),     # ON TRACK
 
         # --- Packing (5 orders) ---
-        ("packing", False, 16, "BlueDart", 12),
-        ("packing", True, 8, "Delhivery", 6),
-        ("packing", False, 10, "DTDC", 14),
-        ("packing", False, 22, "Ecom Express", 9),
-        ("packing", True, -0.5, "BlueDart", 8),
+        ("packing", True,  -0.5,   "BlueDart",    12,  None),     # PRIORITY + OVERDUE
+        ("packing", True,  2.5,    "Delhivery",    6,  None),     # PRIORITY + AT RISK
+        ("packing", False, 10,     "DTDC",        14,  None),     # ON TRACK
+        ("packing", False, 22,     "Ecom Express",  9, None),     # ON TRACK
+        ("packing", False, 16,     "BlueDart",      8, None),     # ON TRACK
 
         # --- Staged (5 orders) ---
-        ("staged", False, 14, "Shadowfax", 16),
-        ("staged", True, 3, "Delhivery", 5),
-        ("staged", False, 20, "BlueDart", 18),
-        ("staged", False, 8, "DTDC", 20),
-        ("staged", True, 12, "Ecom Express", 10),
+        # staged_ago: >2h = "staged too long" warning
+        ("staged", True,  8,       "Delhivery",   16,  1),        # PRIORITY + ON TRACK (staged 1h ago — fine)
+        ("staged", True,  2,       "Shadowfax",   10,  3),        # PRIORITY + AT RISK + STAGED TOO LONG (3h)
+        ("staged", False, 20,      "BlueDart",    18,  0.5),      # ON TRACK (staged 30min ago — fine)
+        ("staged", False, 6,       "DTDC",        20,  5),        # ON TRACK + STAGED TOO LONG (5h)
+        ("staged", False, 14,      "Ecom Express", 12, 1.5),      # ON TRACK (staged 1.5h ago — fine)
 
         # --- Shipped (4 orders) ---
-        ("shipped", False, 48, "Delhivery", 24),
-        ("shipped", True, 6, "BlueDart", 20),
-        ("shipped", False, 36, "DTDC", 30),
-        ("shipped", False, 24, "Ecom Express", 26),
+        ("shipped", True,  48,     "BlueDart",    20,  None),      # PRIORITY + SHIPPED
+        ("shipped", False, 36,     "DTDC",        30,  None),      # SHIPPED
+        ("shipped", False, 24,     "Ecom Express", 26, None),      # SHIPPED
+        ("shipped", False, 48,     "Delhivery",   24,  None),      # SHIPPED
     ]
 
     order_ids = []
-    for i, (status, is_pri, dl_offset, courier, created_ago) in enumerate(order_templates):
+    for i, (status, is_pri, dl_offset, courier, created_ago, staged_ago) in enumerate(order_templates):
         order_num = f"ORD-{1001 + i}"
         customer = customers[i % len(customers)]
         created_at = (now - timedelta(hours=created_ago)).isoformat()
-        deadline = (now + timedelta(hours=dl_offset)).isoformat() if dl_offset else None
+        deadline = (now + timedelta(hours=dl_offset)).isoformat() if dl_offset is not None else None
 
         staged_at = None
         shipped_at = None
-        if status == "staged":
-            if i % 2 == 0:
-                staged_at = (now - timedelta(hours=4)).isoformat()
-            else:
-                staged_at = (now - timedelta(minutes=30)).isoformat()
+        if status == "staged" and staged_ago is not None:
+            staged_at = (now - timedelta(hours=staged_ago)).isoformat()
         if status == "shipped":
             shipped_at = (now - timedelta(hours=random.randint(1, 5))).isoformat()
 
@@ -235,9 +238,9 @@ def seed(cur):
                 VALUES (%s, %s, %s, %s)
             """, (oid, pid, qty, picked))
 
-    # Override: 2 picking orders with some items NOT picked
-    picking_order_id_1 = order_ids[21]
-    picking_order_id_2 = order_ids[23]
+    # Override: 2 picking orders with some items NOT picked (to test pick verification)
+    picking_order_id_1 = order_ids[21]  # picking order index 21
+    picking_order_id_2 = order_ids[23]  # picking order index 23
     cur.execute("""
         UPDATE order_item SET picked_ok = 0
         WHERE id = (
@@ -251,7 +254,7 @@ def seed(cur):
         )
     """, (picking_order_id_2,))
 
-    # ----- Orders needing transfers -----
+    # ----- Orders needing transfers (secondary-only products) -----
     processing_order_1 = order_ids[16]
     processing_order_2 = order_ids[18]
     cur.execute("INSERT INTO order_item (order_id, product_id, quantity, picked_ok) VALUES (%s, 9, 1, 0)",
@@ -259,7 +262,7 @@ def seed(cur):
     cur.execute("INSERT INTO order_item (order_id, product_id, quantity, picked_ok) VALUES (%s, 13, 2, 0)",
                 (processing_order_2,))
 
-    # Add secondary-only products to several received orders
+    # Add secondary-only products to several received orders (to test transfer requests)
     for recv_idx, pid in [(4, 9), (6, 13), (8, 9), (12, 13)]:
         cur.execute("INSERT INTO order_item (order_id, product_id, quantity, picked_ok) VALUES (%s, %s, 1, 0)",
                     (order_ids[recv_idx], pid))
@@ -280,12 +283,12 @@ def seed(cur):
         VALUES (13, 3, 2, 1, 'completed', %s)
     """, ((now - timedelta(days=2)).isoformat(),))
 
-    # ----- Issues -----
+    # ----- Issues (3 open, 2 resolved) -----
     issue_data = [
-        (order_ids[2], 'Customer reported wrong size variant listed. Verified SKU — marketplace listing error. Forwarded to catalog team.', 12, 1),
+        (order_ids[3],  'Priority order missed same-day cutoff. Customer notified of 1-day delay.', 4, 1),
         (order_ids[30], 'Box was staged but courier driver could not locate it. Re-staged near loading dock.', 2, 0),
         (order_ids[17], 'Item SKU BNI-GRY-OS not found on shelf despite system stock. Need physical recount.', 1, 0),
-        (order_ids[5], 'Priority order missed same-day cutoff. Customer notified of 1-day delay.', 4, 1),
+        (order_ids[5],  'Customer reported wrong size variant listed. Verified SKU — marketplace listing error. Forwarded to catalog team.', 12, 1),
         (order_ids[10], 'Packing tape seal broken on box during staging. Repacked and re-sealed.', 0.5, 0),
     ]
     for oid, note, hours_ago, resolved in issue_data:
