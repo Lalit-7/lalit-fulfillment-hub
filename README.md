@@ -28,7 +28,7 @@ A small online store gets 200–300 orders every day. Right now the team uses sp
 ## Tech Used
 
 - Python (Flask) for the backend
-- PostgreSQL (Neon) for the database
+- PostgreSQL (Supabase — Mumbai region) for the database
 - Plain HTML, CSS, and JavaScript for the frontend
 - Hosted on Vercel
 
@@ -38,8 +38,8 @@ A small online store gets 200–300 orders every day. Right now the team uses sp
 # Install what's needed
 pip install -r requirements.txt
 
-# Set your database connection (get this from Neon dashboard)
-set DATABASE_URL=your-neon-connection-string-here
+# Set your database connection (get this from Supabase dashboard)
+set DATABASE_URL=your-supabase-connection-string-here
 
 # Load demo data
 python seed.py
