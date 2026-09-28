@@ -62,6 +62,89 @@ def execute_db(query, args=()):
 
 
 # ---------------------------------------------------------------------------
+# Demo data auto-refresh — keeps timestamps perpetually fresh
+# ---------------------------------------------------------------------------
+
+def _refresh_demo_timestamps():
+    """Shift all timestamps forward so demo data never goes stale.
+
+    The seed script stores a 'last_refreshed' timestamp. This function
+    compares it to the current time and shifts every timestamp in the DB
+    forward by the elapsed amount, then updates the marker. The result:
+    staged-too-long, at-risk, and overdue badges stay exactly as designed
+    no matter how much time passes after seeding.
+    """
+    conn = None
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        conn.autocommit = False
+        cur = conn.cursor()
+
+        # Lock the row to prevent concurrent refreshes
+        cur.execute("SELECT value FROM metadata WHERE key = 'last_refreshed' FOR UPDATE")
+        row = cur.fetchone()
+        if not row:
+            conn.rollback()
+            conn.close()
+            return
+
+        last_refreshed = datetime.fromisoformat(row[0])
+        now = get_now()
+        elapsed_secs = (now - last_refreshed).total_seconds()
+
+        # Only refresh if >30 minutes have passed
+        if elapsed_secs < 1800:
+            conn.rollback()
+            conn.close()
+            return
+
+        # Shift all order timestamps forward
+        cur.execute("""
+            UPDATE "order" SET
+                created_at  = (created_at::timestamp  + (interval '1 second' * %s))::text,
+                deadline    = CASE WHEN deadline IS NOT NULL
+                              THEN (deadline::timestamp + (interval '1 second' * %s))::text END,
+                staged_at   = CASE WHEN staged_at IS NOT NULL
+                              THEN (staged_at::timestamp + (interval '1 second' * %s))::text END,
+                shipped_at  = CASE WHEN shipped_at IS NOT NULL
+                              THEN (shipped_at::timestamp + (interval '1 second' * %s))::text END
+        """, (elapsed_secs, elapsed_secs, elapsed_secs, elapsed_secs))
+
+        # Shift transfer timestamps
+        cur.execute("""
+            UPDATE transfer SET
+                created_at = (created_at::timestamp + (interval '1 second' * %s))::text
+        """, (elapsed_secs,))
+
+        # Shift issue timestamps
+        cur.execute("""
+            UPDATE issue SET
+                created_at = (created_at::timestamp + (interval '1 second' * %s))::text
+        """, (elapsed_secs,))
+
+        # Update the marker
+        cur.execute("UPDATE metadata SET value = %s WHERE key = 'last_refreshed'",
+                    (now.isoformat(),))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"Demo refresh error: {e}")
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+@app.before_request
+def before_request_hook():
+    """Auto-refresh demo data on each request if stale."""
+    _refresh_demo_timestamps()
+
+
+# ---------------------------------------------------------------------------
 # Status flow
 # ---------------------------------------------------------------------------
 

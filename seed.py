@@ -72,6 +72,11 @@ def create_tables(cur):
             created_at TEXT NOT NULL,
             resolved INTEGER NOT NULL DEFAULT 0
         );
+
+        CREATE TABLE IF NOT EXISTS metadata (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
     """)
 
 
@@ -297,6 +302,9 @@ def seed(cur):
             VALUES (%s, %s, %s, %s)
         """, (oid, note, (now - timedelta(hours=hours_ago)).isoformat(), resolved))
 
+    # ----- Metadata (for auto-refresh) -----
+    cur.execute("INSERT INTO metadata (key, value) VALUES ('last_refreshed', %s)", (now.isoformat(),))
+
 
 def main():
     if not DATABASE_URL:
@@ -309,6 +317,7 @@ def main():
 
     # Drop existing tables in reverse dependency order
     cur.execute("""
+        DROP TABLE IF EXISTS metadata CASCADE;
         DROP TABLE IF EXISTS issue CASCADE;
         DROP TABLE IF EXISTS transfer CASCADE;
         DROP TABLE IF EXISTS order_item CASCADE;
