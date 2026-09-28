@@ -11,17 +11,19 @@ A small online store gets 200–300 orders every day. Right now the team uses sp
 ## What This App Does
 
 - **Shows all orders on one screen** — a board with columns: Received → Processing → Picking → Packing → Staged → Shipped. You can see exactly where every order is.
+- **Instant search** — quickly find any order by typing an order number or customer name in the search bar at the top of the dashboard.
 - **Highlights urgent orders** — priority orders that are running late turn yellow (at risk) or red (overdue) so the team knows what to focus on.
 - **Manages two warehouses** — some products are stored in a secondary warehouse. If an order needs something from there, the app lets you request a stock transfer before packing.
 - **Makes sure the right items get packed** — during picking, each item has a checkbox. The order can't move forward until every item is checked off.
 - **Warns about forgotten packages** — if a packed box has been sitting on the staging shelf for too long without being picked up by the courier, it gets flagged.
 - **Tracks problems** — anyone can flag an issue on an order (wrong item, damaged box, delay) and it stays visible until someone resolves it.
+- **Handles realistic order volume** — comes loaded with ~220 orders across unique customer names. To keep the board neat, the Shipped column displays the latest 10 orders, while all orders remain fully searchable.
 
 ## Pages in the App
 
 | Page | What's There |
 |---|---|
-| **Dashboard** | The main board — all orders in columns, with a summary bar at the top |
+| **Dashboard** | The main board — all orders in columns, instant search bar at the top, and a summary bar |
 | **Order Detail** | Click any order to see its items, stock info, and action buttons |
 | **Inventory** | Stock counts for every product in both warehouses |
 | **Transfers** | List of stock transfer requests between warehouses |
@@ -54,7 +56,7 @@ Then open **http://localhost:5000** in your browser.
 
 ## How to Reset the Data
 
-Run `python seed.py` again. It wipes everything and loads fresh demo data.
+Run `python seed.py` again. It wipes everything and loads fresh demo data (~220 orders across unique customers).
 
 ## File Structure
 
