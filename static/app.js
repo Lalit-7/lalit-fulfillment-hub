@@ -355,3 +355,51 @@ async function toggleIssue(issueId, checkbox) {
         checkbox.checked = !resolved;
     }
 }
+
+
+// =========================================================================
+// Dashboard search (filters cards by order number or customer name)
+// =========================================================================
+
+document.addEventListener('input', function(e) {
+    if (e.target.id !== 'order-search') return;
+
+    const query = e.target.value.trim().toLowerCase();
+    const board = document.getElementById('order-board');
+    const noResults = document.getElementById('no-results');
+    if (!board) return;
+
+    const cards = board.querySelectorAll('.order-card');
+    let anyVisible = false;
+
+    if (!query) {
+        // Reset: remove search classes, restore default visibility
+        cards.forEach(card => {
+            card.classList.remove('order-card--search-match', 'order-card--search-miss');
+        });
+        if (noResults) noResults.style.display = 'none';
+        board.style.display = '';
+        return;
+    }
+
+    cards.forEach(card => {
+        const orderNum = (card.dataset.orderNumber || '').toLowerCase();
+        const customer = (card.dataset.customer || '').toLowerCase();
+        const matches = orderNum.includes(query) || customer.includes(query);
+
+        if (matches) {
+            card.classList.add('order-card--search-match');
+            card.classList.remove('order-card--search-miss');
+            anyVisible = true;
+        } else {
+            card.classList.add('order-card--search-miss');
+            card.classList.remove('order-card--search-match');
+        }
+    });
+
+    if (noResults) {
+        noResults.style.display = anyVisible ? 'none' : 'block';
+        board.style.display = anyVisible ? '' : 'none';
+    }
+});
+

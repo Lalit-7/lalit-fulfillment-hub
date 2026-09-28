@@ -26,17 +26,33 @@
     </div>
 </div>
 
+<!-- Search -->
+<div class="search-bar">
+    <input type="text" id="order-search" class="search-bar__input"
+           placeholder="Search by order number or customer name…"
+           autocomplete="off">
+</div>
+
+<!-- No results message (hidden by default) -->
+<div id="no-results" class="empty-state" style="display:none; text-align:center; padding:2rem;">
+    No orders found
+</div>
+
 <!-- Kanban Board -->
-<div class="board">
+<div class="board" id="order-board">
     {% for status in status_order %}
-    <div class="board__column">
+    <div class="board__column" data-status="{{ status }}">
         <div class="board__column-header">
             <span>{{ status | replace('_', ' ') | title }}</span>
             <span class="board__column-count">{{ columns[status] | length }}</span>
         </div>
         <div class="board__column-body">
             {% for order in columns[status] %}
-            <a href="/order/{{ order.id }}" class="order-card" style="text-decoration:none; color:inherit;">
+            <a href="/order/{{ order.id }}"
+               class="order-card {% if status == 'shipped' and loop.index > 10 %}order-card--hidden{% endif %}"
+               style="text-decoration:none; color:inherit;"
+               data-order-number="{{ order.order_number }}"
+               data-customer="{{ order.customer_name }}">
                 <div class="order-card__top">
                     <span class="order-card__number">{{ order.order_number }}</span>
                     {% if order.is_priority %}
@@ -68,3 +84,4 @@
     {% endfor %}
 </div>
 {% endblock %}
+

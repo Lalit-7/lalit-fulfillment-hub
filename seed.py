@@ -137,7 +137,20 @@ def seed(cur):
         "Ankit Rawat", "Pallavi Sen", "Yash Goyal", "Ritika Dutta",
         "Om Prakash", "Shruti Pandey", "Farhan Qureshi", "Diya Nambiar",
         "Mohit Bhatt", "Lavanya Rao", "Suresh Pillai", "Aisha Khan",
-        "Tanmay Bose",
+        "Tanmay Bose", "Sakshi Verma", "Akash Yadav", "Kritika Rathi",
+        "Pankaj Mishra", "Anjali Gupta", "Dev Narayan", "Nandini Iyer",
+        "Rajesh Khanna", "Sunita Devi", "Vivek Oberoi", "Madhuri Sharma",
+        "Arun Thakur", "Bhavna Kapoor", "Chetan Deshmukh", "Dipika Patel",
+        "Eshan Malhotra", "Fatima Sheikh", "Girish Nair", "Hema Yadav",
+        "Irfan Siddiqui", "Jaya Krishnan", "Kartik Aryan", "Lakshmi Raman",
+        "Manoj Bajpai", "Naina Talwar", "Omkar Joshi", "Padma Lakshmi",
+        "Qasim Ali", "Rekha Menon", "Sanjay Dutt", "Tarun Sethi",
+        "Uma Bharti", "Vinod Mehra", "Wasim Akram", "Yamini Rao",
+        "Zara Hussain", "Abhishek Sen", "Bina Agarwal", "Chirag Puri",
+        "Daksha Trivedi", "Ekta Kapoor", "Firoz Khan", "Gauri Shankar",
+        "Himanshu Gupta", "Indira Singh", "Jugal Kishore", "Kamini Das",
+        "Lalit Mohan", "Mridula Sinha", "Naveen Patnaik", "Ojas Rajput",
+        "Preeti Kumari", "Rajan Verma", "Suman Ghosh", "Tushar Kapoor",
     ]
 
     couriers = ["Delhivery", "BlueDart", "DTDC", "Ecom Express", "Shadowfax"]
@@ -301,6 +314,70 @@ def seed(cur):
             INSERT INTO issue (order_id, note, created_at, resolved)
             VALUES (%s, %s, %s, %s)
         """, (oid, note, (now - timedelta(hours=hours_ago)).isoformat(), resolved))
+
+    # ----- Bulk extra orders (~180 more, mostly shipped) -----
+    extra_templates = []
+
+    # 6 more received (ON TRACK)
+    for h in [50, 38, 26, 44, 32, 22]:
+        extra_templates.append(("received", False, h, None, random.uniform(0.5, 3), None))
+
+    # 4 more processing (ON TRACK)
+    for h in [28, 35, 18, 42]:
+        extra_templates.append(("processing", False, h, random.choice(couriers), random.uniform(3, 8), None))
+
+    # 3 more picking (ON TRACK)
+    for h in [15, 22, 30]:
+        extra_templates.append(("picking", False, h, random.choice(couriers), random.uniform(5, 12), None))
+
+    # 3 more packing (ON TRACK)
+    for h in [12, 20, 28]:
+        extra_templates.append(("packing", False, h, random.choice(couriers), random.uniform(8, 16), None))
+
+    # 2 more staged (1 fine, 1 staged too long)
+    extra_templates.append(("staged", False, 18, random.choice(couriers), 14, 1.2))
+    extra_templates.append(("staged", False, 10, random.choice(couriers), 22, 4))
+
+    # ~162 shipped orders (fills up to ~220 total)
+    for j in range(162):
+        is_pri = (j % 12 == 0)  # ~1 in 12 is priority
+        created_ago = random.uniform(24, 720)  # 1 to 30 days ago
+        dl_offset = random.uniform(24, 96)     # deadline was 1-4 days out
+        extra_templates.append(("shipped", is_pri, dl_offset, random.choice(couriers), created_ago, None))
+
+    random.seed(99)
+    for j, (status, is_pri, dl_offset, courier, created_ago, staged_ago) in enumerate(extra_templates):
+        idx = len(order_templates) + j
+        order_num = f"ORD-{1001 + idx}"
+        customer = customers[idx % len(customers)]
+        created_at = (now - timedelta(hours=created_ago)).isoformat()
+        deadline = (now + timedelta(hours=dl_offset)).isoformat() if dl_offset is not None else None
+
+        staged_at = None
+        shipped_at = None
+        if status == "staged" and staged_ago is not None:
+            staged_at = (now - timedelta(hours=staged_ago)).isoformat()
+        if status == "shipped":
+            shipped_at = (now - timedelta(hours=random.uniform(1, created_ago * 0.8))).isoformat()
+
+        cur.execute("""
+            INSERT INTO "order" (order_number, customer_name, created_at, is_priority,
+                                 deadline, status, courier, staged_at, shipped_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (order_num, customer, created_at, int(is_pri), deadline, status, courier, staged_at, shipped_at))
+        new_id = cur.fetchone()[0]
+
+        # Add items for each new order
+        num_items = random.choice([1, 1, 2, 2, 3])
+        chosen_products = random.sample(range(1, 15), num_items)
+        for pid in chosen_products:
+            qty = random.choice([1, 1, 1, 2])
+            picked = 1 if status in ("picking", "packing", "staged", "shipped") else 0
+            cur.execute("""
+                INSERT INTO order_item (order_id, product_id, quantity, picked_ok)
+                VALUES (%s, %s, %s, %s)
+            """, (new_id, pid, qty, picked))
 
     # ----- Metadata (for auto-refresh) -----
     cur.execute("INSERT INTO metadata (key, value) VALUES ('last_refreshed', %s)", (now.isoformat(),))

@@ -950,3 +950,46 @@ a:hover {
     pointer-events: none;
 }
 
+
+/* ----- Search Bar ----- */
+.search-bar {
+    max-width: 480px;
+    margin: 0 auto 1.25rem;
+}
+
+.search-bar__input {
+    width: 100%;
+    padding: 0.65rem 1rem;
+    font-family: 'Poppins', sans-serif;
+    font-size: 0.85rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-card-alt);
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.search-bar__input::placeholder {
+    color: var(--text-secondary);
+}
+
+.search-bar__input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(139, 58, 71, 0.12);
+}
+
+/* Hidden shipped cards (beyond first 10) */
+.order-card--hidden {
+    display: none !important;
+}
+
+/* Search-matched cards override hidden */
+.order-card--search-match {
+    display: flex !important;
+}
+
+/* Hide cards that don't match search */
+.order-card--search-miss {
+    display: none !important;
+}
