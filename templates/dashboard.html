@@ -4,7 +4,15 @@
 {% set main_class = "main-content--dashboard" %}
 
 {% block content %}
-<h1 class="page-title">Order Dashboard</h1>
+<div class="dashboard-header">
+    <h1 class="page-title">Order Dashboard</h1>
+    <div class="dashboard-header__search">
+        <input type="text" id="order-search" class="search-bar__input"
+               placeholder="Search by order number or name"
+               autocomplete="off">
+    </div>
+    <div class="dashboard-header__spacer"></div>
+</div>
 
 <!-- Summary Strip -->
 <div class="summary-strip">
@@ -24,13 +32,6 @@
         <span class="summary-card__value">{{ pending_transfers }}</span>
         <span class="summary-card__label">Pending Transfers</span>
     </div>
-</div>
-
-<!-- Search -->
-<div class="search-bar">
-    <input type="text" id="order-search" class="search-bar__input"
-           placeholder="Search by order number or customer name…"
-           autocomplete="off">
 </div>
 
 <!-- No results message (hidden by default) -->
