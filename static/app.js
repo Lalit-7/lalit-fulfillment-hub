@@ -342,11 +342,20 @@ async function toggleIssue(issueId, checkbox) {
             return;
         }
         const noteEl = checkbox.closest('.issue-item').querySelector('.issue-item__note');
+        const badgeEl = checkbox.closest('.issue-item').querySelector('.badge');
         if (resolved) {
             noteEl.classList.add('issue-item__note--resolved');
+            if (badgeEl) {
+                badgeEl.className = 'badge badge--resolved';
+                badgeEl.textContent = 'Resolved';
+            }
             showToast('Issue resolved ✓');
         } else {
             noteEl.classList.remove('issue-item__note--resolved');
+            if (badgeEl) {
+                badgeEl.className = 'badge badge--open-issue';
+                badgeEl.textContent = 'Open';
+            }
             showToast('Issue reopened');
         }
         pageCache.clear();
