@@ -17,7 +17,7 @@
             </span>
         </div>
         <div style="display:flex; align-items:center; gap:10px;">
-            <span class="badge badge--{{ t.status }}">{{ t.status | replace('_', ' ') | title }}</span>
+            <span class="badge badge--{{ t.status | replace('_', '-') }}">{{ t.status | replace('_', ' ') | title }}</span>
             {% if t.status == 'requested' %}
             <button class="btn btn--primary btn--sm" onclick="advanceTransfer({{ t.id }})">
                 Mark In Transit

@@ -109,12 +109,12 @@ def seed(cur):
                      (name, sku, variant))
 
     # ----- Stock -----
-    # Products 9 (Wool Beanie) and 13 (Crossbody Bag) are ONLY in Secondary → triggers transfer flow.
+    # Products 7, 9, 11, 13 are ONLY in Secondary → triggers transfer flow.
     stock_data = [
         (1, 45, 10), (2, 30, 5), (3, 25, 0), (4, 18, 8),
-        (5, 12, 6), (6, 20, 0), (7, 15, 3), (8, 22, 4),
-        (9, 0, 18), (10, 10, 5), (11, 8, 3), (12, 35, 0),
-        (13, 0, 12), (14, 16, 7),
+        (5, 12, 6), (6, 20, 0), (7, 0, 15), (8, 22, 4),
+        (9, 0, 18), (10, 10, 5), (11, 0, 12), (12, 35, 0),
+        (13, 0, 14), (14, 16, 7),
     ]
     for pid, main_q, sec_q in stock_data:
         if main_q > 0:
@@ -308,32 +308,43 @@ def seed(cur):
     """, (picking_order_id_2,))
 
     # ----- Orders needing transfers (secondary-only products) -----
-    processing_order_1 = order_ids[16]
-    processing_order_2 = order_ids[18]
+    # Processing orders (ORD-1017, ORD-1018, ORD-1019, ORD-1021)
     cur.execute("INSERT INTO order_item (order_id, product_id, quantity, picked_ok) VALUES (%s, 9, 1, 0)",
-                (processing_order_1,))
-    cur.execute("INSERT INTO order_item (order_id, product_id, quantity, picked_ok) VALUES (%s, 13, 2, 0)",
-                (processing_order_2,))
+                (order_ids[16],))
+    cur.execute("INSERT INTO order_item (order_id, product_id, quantity, picked_ok) VALUES (%s, 7, 1, 0)",
+                (order_ids[17],))
+    cur.execute("INSERT INTO order_item (order_id, product_id, quantity, picked_ok) VALUES (%s, 11, 2, 0)",
+                (order_ids[18],))
+    cur.execute("INSERT INTO order_item (order_id, product_id, quantity, picked_ok) VALUES (%s, 13, 1, 0)",
+                (order_ids[20],))
 
-    # Add secondary-only products to several received orders (to test transfer requests)
-    for recv_idx, pid in [(4, 9), (6, 13), (8, 9), (12, 13)]:
+    # Add secondary-only products to several received orders (to test transfer requests & in-transit badges)
+    for recv_idx, pid in [(1, 7), (4, 9), (6, 11), (8, 13), (10, 7), (12, 9), (14, 11)]:
         cur.execute("INSERT INTO order_item (order_id, product_id, quantity, picked_ok) VALUES (%s, %s, 1, 0)",
                     (order_ids[recv_idx], pid))
 
     # ----- Transfers -----
+    # Multiple transfers in transit:
+    cur.execute("""
+        INSERT INTO transfer (product_id, quantity, from_warehouse_id, to_warehouse_id, status, created_at)
+        VALUES (7, 6, 2, 1, 'in_transit', %s)
+    """, ((now - timedelta(hours=2)).isoformat(),))
+
     cur.execute("""
         INSERT INTO transfer (product_id, quantity, from_warehouse_id, to_warehouse_id, status, created_at)
         VALUES (9, 5, 2, 1, 'in_transit', %s)
     """, ((now - timedelta(hours=3)).isoformat(),))
 
+    # Requested transfer for testing 'Mark In Transit':
     cur.execute("""
         INSERT INTO transfer (product_id, quantity, from_warehouse_id, to_warehouse_id, status, created_at)
-        VALUES (9, 3, 2, 1, 'requested', %s)
-    """, ((now - timedelta(minutes=30)).isoformat(),))
+        VALUES (11, 4, 2, 1, 'requested', %s)
+    """, ((now - timedelta(minutes=45)).isoformat(),))
 
+    # Completed transfer for history:
     cur.execute("""
         INSERT INTO transfer (product_id, quantity, from_warehouse_id, to_warehouse_id, status, created_at)
-        VALUES (13, 3, 2, 1, 'completed', %s)
+        VALUES (14, 3, 2, 1, 'completed', %s)
     """, ((now - timedelta(days=2)).isoformat(),))
 
     # ----- Issues (3 open, 2 resolved) -----
@@ -416,6 +427,7 @@ def seed(cur):
 
     # ----- Metadata (for auto-refresh) -----
     cur.execute("INSERT INTO metadata (key, value) VALUES ('last_refreshed', %s)", (now.isoformat(),))
+    cur.execute("INSERT INTO metadata (key, value) VALUES ('demo_version', 'v2_transfers') ON CONFLICT (key) DO UPDATE SET value = 'v2_transfers'")
 
 
 def main():

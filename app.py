@@ -70,15 +70,22 @@ def _refresh_demo_timestamps():
 
     The seed script stores a 'last_refreshed' timestamp. This function
     compares it to the current time and shifts every timestamp in the DB
-    forward by the elapsed amount, then updates the marker. The result:
-    staged-too-long, at-risk, and overdue badges stay exactly as designed
-    no matter how much time passes after seeding.
+    forward by the elapsed amount, then updates the marker.
+    Additionally, every 30 minutes (or on new demo version), it restores
+    the stock transfer test state (in_transit, requested, unrequested)
+    and test order statuses in Received and Processing so that reviewers
+    can repeatedly test the transfer flow.
     """
     conn = None
     try:
         conn = psycopg2.connect(DATABASE_URL)
         conn.autocommit = False
         cur = conn.cursor()
+
+        # Check demo version
+        cur.execute("SELECT value FROM metadata WHERE key = 'demo_version'")
+        ver_row = cur.fetchone()
+        current_version = ver_row[0] if ver_row else None
 
         # Lock the row to prevent concurrent refreshes
         cur.execute("SELECT value FROM metadata WHERE key = 'last_refreshed' FOR UPDATE")
@@ -92,39 +99,106 @@ def _refresh_demo_timestamps():
         now = get_now()
         elapsed_secs = (now - last_refreshed).total_seconds()
 
-        # Only refresh if >30 minutes have passed
-        if elapsed_secs < 1800:
+        # Refresh if >30 minutes have passed OR if demo_version is not v2_transfers
+        needs_refresh = (elapsed_secs >= 1800 or current_version != 'v2_transfers')
+        if not needs_refresh:
             conn.rollback()
             conn.close()
             return
 
         # Shift all order timestamps forward
-        cur.execute("""
-            UPDATE "order" SET
-                created_at  = (created_at::timestamp  + (interval '1 second' * %s))::text,
-                deadline    = CASE WHEN deadline IS NOT NULL
-                              THEN (deadline::timestamp + (interval '1 second' * %s))::text END,
-                staged_at   = CASE WHEN staged_at IS NOT NULL
-                              THEN (staged_at::timestamp + (interval '1 second' * %s))::text END,
-                shipped_at  = CASE WHEN shipped_at IS NOT NULL
-                              THEN (shipped_at::timestamp + (interval '1 second' * %s))::text END
-        """, (elapsed_secs, elapsed_secs, elapsed_secs, elapsed_secs))
+        if elapsed_secs > 0:
+            cur.execute("""
+                UPDATE "order" SET
+                    created_at  = (created_at::timestamp  + (interval '1 second' * %s))::text,
+                    deadline    = CASE WHEN deadline IS NOT NULL
+                                  THEN (deadline::timestamp + (interval '1 second' * %s))::text END,
+                    staged_at   = CASE WHEN staged_at IS NOT NULL
+                                  THEN (staged_at::timestamp + (interval '1 second' * %s))::text END,
+                    shipped_at  = CASE WHEN shipped_at IS NOT NULL
+                                  THEN (shipped_at::timestamp + (interval '1 second' * %s))::text END
+            """, (elapsed_secs, elapsed_secs, elapsed_secs, elapsed_secs))
 
-        # Shift transfer timestamps
-        cur.execute("""
-            UPDATE transfer SET
-                created_at = (created_at::timestamp + (interval '1 second' * %s))::text
-        """, (elapsed_secs,))
+            # Shift issue timestamps
+            cur.execute("""
+                UPDATE issue SET
+                    created_at = (created_at::timestamp + (interval '1 second' * %s))::text
+            """, (elapsed_secs,))
 
-        # Shift issue timestamps
+        # Restore stock for secondary-only products (Product 7, 9, 11, 13)
         cur.execute("""
-            UPDATE issue SET
-                created_at = (created_at::timestamp + (interval '1 second' * %s))::text
-        """, (elapsed_secs,))
+            UPDATE stock SET quantity = 0 WHERE product_id IN (7, 9, 11, 13) AND warehouse_id = 1;
+            UPDATE stock SET quantity = 15 WHERE product_id = 7 AND warehouse_id = 2;
+            UPDATE stock SET quantity = 18 WHERE product_id = 9 AND warehouse_id = 2;
+            UPDATE stock SET quantity = 12 WHERE product_id = 11 AND warehouse_id = 2;
+            UPDATE stock SET quantity = 14 WHERE product_id = 13 AND warehouse_id = 2;
+        """)
 
-        # Update the marker
-        cur.execute("UPDATE metadata SET value = %s WHERE key = 'last_refreshed'",
-                    (now.isoformat(),))
+        # Reset transfers table to fresh demo transfers (multiple in_transit, requested, completed)
+        cur.execute("DELETE FROM transfer")
+        cur.execute("""
+            INSERT INTO transfer (product_id, quantity, from_warehouse_id, to_warehouse_id, status, created_at)
+            VALUES 
+                (7, 6, 2, 1, 'in_transit', %s),
+                (9, 5, 2, 1, 'in_transit', %s),
+                (11, 4, 2, 1, 'requested', %s),
+                (14, 3, 2, 1, 'completed', %s)
+        """, (
+            (now - timedelta(hours=2)).isoformat(),
+            (now - timedelta(hours=3)).isoformat(),
+            (now - timedelta(minutes=45)).isoformat(),
+            (now - timedelta(days=2)).isoformat()
+        ))
+
+        # Restore test order statuses if previously advanced
+        cur.execute("""
+            UPDATE "order" SET status = 'received'
+            WHERE order_number IN ('ORD-1002', 'ORD-1005', 'ORD-1007', 'ORD-1009', 'ORD-1011', 'ORD-1013', 'ORD-1015');
+
+            UPDATE "order" SET status = 'processing'
+            WHERE order_number IN ('ORD-1017', 'ORD-1018', 'ORD-1019', 'ORD-1021');
+
+            UPDATE order_item SET picked_ok = 0
+            WHERE order_id IN (
+                SELECT id FROM "order"
+                WHERE order_number IN (
+                    'ORD-1002', 'ORD-1005', 'ORD-1007', 'ORD-1009', 'ORD-1011', 'ORD-1013', 'ORD-1015',
+                    'ORD-1017', 'ORD-1018', 'ORD-1019', 'ORD-1021'
+                )
+            );
+        """)
+
+        # Ensure secondary product items are present on test orders
+        test_order_items = [
+            ('ORD-1002', 7, 1),
+            ('ORD-1005', 9, 1),
+            ('ORD-1007', 11, 1),
+            ('ORD-1009', 13, 1),
+            ('ORD-1011', 7, 2),
+            ('ORD-1013', 9, 1),
+            ('ORD-1015', 11, 2),
+            ('ORD-1017', 9, 1),
+            ('ORD-1018', 7, 1),
+            ('ORD-1019', 11, 2),
+            ('ORD-1021', 13, 1),
+        ]
+        for ord_num, pid, qty in test_order_items:
+            cur.execute("""
+                INSERT INTO order_item (order_id, product_id, quantity, picked_ok)
+                SELECT o.id, %s, %s, 0
+                FROM "order" o
+                WHERE o.order_number = %s
+                  AND NOT EXISTS (
+                      SELECT 1 FROM order_item oi WHERE oi.order_id = o.id AND oi.product_id = %s
+                  )
+            """, (pid, qty, ord_num, pid))
+
+        # Update metadata markers
+        cur.execute("UPDATE metadata SET value = %s WHERE key = 'last_refreshed'", (now.isoformat(),))
+        cur.execute("""
+            INSERT INTO metadata (key, value) VALUES ('demo_version', 'v2_transfers')
+            ON CONFLICT (key) DO UPDATE SET value = 'v2_transfers'
+        """)
 
         conn.commit()
         cur.close()
@@ -294,7 +368,12 @@ def order_detail(order_id):
         JOIN product p ON p.id = oi.product_id
         LEFT JOIN stock sm ON sm.product_id = p.id AND sm.warehouse_id = 1
         LEFT JOIN stock ss ON ss.product_id = p.id AND ss.warehouse_id = 2
-        LEFT JOIN transfer t ON t.product_id = p.id AND t.to_warehouse_id = 1 AND t.status IN ('requested', 'in_transit')
+        LEFT JOIN (
+            SELECT DISTINCT ON (product_id) id, product_id, status
+            FROM transfer
+            WHERE to_warehouse_id = 1 AND status IN ('requested', 'in_transit')
+            ORDER BY product_id, created_at DESC
+        ) t ON t.product_id = p.id
         WHERE oi.order_id = %s
     """, [order_id])
 
@@ -594,6 +673,26 @@ def api_resolve_issue(issue_id):
     resolved = 1 if data.get("resolved", True) else 0
     execute_db("UPDATE issue SET resolved = %s WHERE id = %s", [resolved, issue_id])
     return jsonify({"ok": True, "resolved": bool(resolved)})
+
+
+# =========================================================================
+# API: Reset / reload demo state
+# =========================================================================
+
+@app.route("/api/demo/reset", methods=["POST", "GET"])
+def api_demo_reset():
+    """Manual trigger to immediately restore demo transfer & order test data."""
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        cur.execute("UPDATE metadata SET value = 'reset_needed' WHERE key = 'demo_version'")
+        conn.commit()
+        cur.close()
+        conn.close()
+        _refresh_demo_timestamps()
+        return jsonify({"ok": True, "message": "Demo transfer & test data refreshed"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # =========================================================================
