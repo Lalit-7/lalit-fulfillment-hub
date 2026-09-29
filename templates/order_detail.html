@@ -160,7 +160,7 @@
                             <td>
                                 {% if item.only_in_secondary %}
                                     {% if item.transfer_pending %}
-                                        <span class="badge badge--{{ item.transfer_pending.status | replace(' ', '-') }}">
+                                        <span class="badge badge--{{ item.transfer_pending.status | replace('_', '-') }}">
                                             Transfer {{ item.transfer_pending.status | replace('_', ' ') }}
                                         </span>
                                     {% else %}

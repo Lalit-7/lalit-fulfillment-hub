@@ -387,7 +387,8 @@ a:hover {
     color: var(--amber);
 }
 
-.badge--in-transit {
+.badge--in-transit,
+.badge--in_transit {
     background: var(--blue-bg);
     color: var(--blue);
 }
