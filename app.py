@@ -65,16 +65,93 @@ def execute_db(query, args=()):
 # Demo data auto-refresh — keeps timestamps perpetually fresh
 # ---------------------------------------------------------------------------
 
-def _refresh_demo_timestamps():
-    """Shift all timestamps forward so demo data never goes stale.
+# ---------------------------------------------------------------------------
+# Demo data presets and auto-refresh — keeps tags, warnings, & demo state perpetually fresh
+# ---------------------------------------------------------------------------
 
-    The seed script stores a 'last_refreshed' timestamp. This function
-    compares it to the current time and shifts every timestamp in the DB
-    forward by the elapsed amount, then updates the marker.
-    Additionally, every 30 minutes (or on new demo version), it restores
-    the stock transfer test state (in_transit, requested, unrequested)
-    and test order statuses in Received and Processing so that reviewers
-    can repeatedly test the transfer flow.
+ACTIVE_ORDER_PRESETS = [
+    # (order_num, status, is_priority, dl_offset, courier, created_ago, staged_ago)
+    # Received (16 core + 6 extra = 22 orders)
+    ("ORD-1001", "received", 0, 48, None, 1.0, None),
+    ("ORD-1002", "received", 0, 36, None, 2.0, None),
+    ("ORD-1003", "received", 1, 2, None, 0.5, None),        # PRIORITY + AT RISK (<3h)
+    ("ORD-1004", "received", 1, -1, None, 4.0, None),       # PRIORITY + OVERDUE
+    ("ORD-1005", "received", 0, 24, None, 3.0, None),
+    ("ORD-1006", "received", 1, -2, None, 5.0, None),       # PRIORITY + OVERDUE
+    ("ORD-1007", "received", 0, 30, None, 0.8, None),
+    ("ORD-1008", "received", 0, 44, None, 1.5, None),
+    ("ORD-1009", "received", 1, 1.5, None, 0.4, None),      # PRIORITY + AT RISK (<3h)
+    ("ORD-1010", "received", 0, 18, None, 2.5, None),
+    ("ORD-1011", "received", 0, 60, None, 0.2, None),
+    ("ORD-1012", "received", 1, 10, None, 1.0, None),
+    ("ORD-1013", "received", 0, 28, None, 3.5, None),
+    ("ORD-1014", "received", 0, 42, None, 0.7, None),
+    ("ORD-1015", "received", 1, 8, None, 0.5, None),
+    ("ORD-1016", "received", 0, 20, None, 1.2, None),
+    ("ORD-1041", "received", 0, 50, None, 1.5, None),
+    ("ORD-1042", "received", 0, 38, None, 2.0, None),
+    ("ORD-1043", "received", 0, 26, None, 1.0, None),
+    ("ORD-1044", "received", 0, 44, None, 2.5, None),
+    ("ORD-1045", "received", 0, 32, None, 0.8, None),
+    ("ORD-1046", "received", 0, 22, None, 1.2, None),
+
+    # Processing (5 core + 4 extra = 9 orders)
+    ("ORD-1017", "processing", 0, 30, "Delhivery", 5.0, None),
+    ("ORD-1018", "processing", 1, 2, "BlueDart", 2.0, None),       # PRIORITY + AT RISK
+    ("ORD-1019", "processing", 0, 20, "DTDC", 6.0, None),
+    ("ORD-1020", "processing", 1, -0.5, "Delhivery", 8.0, None),   # PRIORITY + OVERDUE
+    ("ORD-1021", "processing", 0, 40, None, 4.0, None),
+    ("ORD-1047", "processing", 0, 28, "Delhivery", 5.0, None),
+    ("ORD-1048", "processing", 0, 35, "BlueDart", 4.0, None),
+    ("ORD-1049", "processing", 0, 18, "DTDC", 6.0, None),
+    ("ORD-1050", "processing", 0, 42, "Shadowfax", 3.5, None),
+
+    # Picking (5 core + 3 extra = 8 orders)
+    ("ORD-1022", "picking", 0, 18, "Ecom Express", 8.0, None),
+    ("ORD-1023", "picking", 1, 1.5, "BlueDart", 4.0, None),       # PRIORITY + AT RISK
+    ("ORD-1024", "picking", 0, 12, "Delhivery", 10.0, None),
+    ("ORD-1025", "picking", 1, -1, "Shadowfax", 6.0, None),       # PRIORITY + OVERDUE
+    ("ORD-1026", "picking", 0, 24, "DTDC", 7.0, None),
+    ("ORD-1051", "picking", 0, 15, "Ecom Express", 7.0, None),
+    ("ORD-1052", "picking", 0, 22, "Delhivery", 9.0, None),
+    ("ORD-1053", "picking", 0, 30, "BlueDart", 8.0, None),
+
+    # Packing (5 core + 3 extra = 8 orders)
+    ("ORD-1027", "packing", 1, -0.5, "BlueDart", 12.0, None),      # PRIORITY + OVERDUE
+    ("ORD-1028", "packing", 1, 2.5, "Delhivery", 6.0, None),       # PRIORITY + AT RISK
+    ("ORD-1029", "packing", 0, 10, "DTDC", 14.0, None),
+    ("ORD-1030", "packing", 0, 22, "Ecom Express", 9.0, None),
+    ("ORD-1031", "packing", 0, 16, "BlueDart", 8.0, None),
+    ("ORD-1054", "packing", 0, 12, "DTDC", 11.0, None),
+    ("ORD-1055", "packing", 0, 20, "Shadowfax", 13.0, None),
+    ("ORD-1056", "packing", 0, 28, "Ecom Express", 10.0, None),
+
+    # Staged (5 core + 2 extra = 7 orders)
+    ("ORD-1032", "staged", 1, 8, "Delhivery", 16.0, 1.0),
+    ("ORD-1033", "staged", 1, 2, "Shadowfax", 10.0, 3.0),          # PRIORITY + AT RISK + STAGED TOO LONG (3h)
+    ("ORD-1034", "staged", 0, 20, "BlueDart", 18.0, 0.5),
+    ("ORD-1035", "staged", 0, 6, "DTDC", 20.0, 5.0),              # STAGED TOO LONG (5h)
+    ("ORD-1036", "staged", 0, 14, "Ecom Express", 12.0, 1.5),
+    ("ORD-1057", "staged", 0, 18, "Delhivery", 14.0, 1.2),
+    ("ORD-1058", "staged", 0, 10, "BlueDart", 22.0, 4.0),          # STAGED TOO LONG (4h)
+
+    # Shipped (4 core demo shipped orders)
+    ("ORD-1037", "shipped", 1, 48, "BlueDart", 20.0, None),
+    ("ORD-1038", "shipped", 0, 36, "DTDC", 30.0, None),
+    ("ORD-1039", "shipped", 0, 24, "Ecom Express", 26.0, None),
+    ("ORD-1040", "shipped", 0, 48, "Delhivery", 24.0, None),
+]
+
+
+def _refresh_demo_timestamps():
+    """Shift timestamps forward and restore all tags/demo states every 30 minutes.
+
+    Restores:
+    - All 58 active orders to their designed status columns (Received, Processing, Picking, Packing, Staged).
+    - Exact staged_at timestamps so "⚠ Staged too long" tags reliably appear on ORD-1033, ORD-1035, and ORD-1058.
+    - Exact deadlines so "Priority At Risk" and "Overdue" badges stay fresh relative to current time.
+    - Stock levels & transfer in_transit/requested states.
+    - Issue open/resolved statuses and pick verification items.
     """
     conn = None
     try:
@@ -99,33 +176,47 @@ def _refresh_demo_timestamps():
         now = get_now()
         elapsed_secs = (now - last_refreshed).total_seconds()
 
-        # Refresh if >30 minutes have passed OR if demo_version is not v2_transfers
-        needs_refresh = (elapsed_secs >= 1800 or current_version != 'v2_transfers')
+        # Refresh if >30 minutes have passed OR if demo_version is not v3_tags_refresh
+        needs_refresh = (elapsed_secs >= 1800 or current_version != 'v3_tags_refresh')
         if not needs_refresh:
             conn.rollback()
             conn.close()
             return
 
-        # Shift all order timestamps forward
+        # 1. Restore all core active orders to their exact designed status and timestamps
+        active_order_numbers = []
+        for order_num, status, is_pri, dl_offset, courier, created_ago, staged_ago in ACTIVE_ORDER_PRESETS:
+            active_order_numbers.append(order_num)
+            created_at = (now - timedelta(hours=created_ago)).isoformat()
+            deadline = (now + timedelta(hours=dl_offset)).isoformat() if dl_offset is not None else None
+            staged_at = (now - timedelta(hours=staged_ago)).isoformat() if staged_ago is not None else None
+            shipped_at = (now - timedelta(hours=2)).isoformat() if status == "shipped" else None
+
+            cur.execute("""
+                UPDATE "order" SET
+                    status = %s,
+                    is_priority = %s,
+                    deadline = %s,
+                    created_at = %s,
+                    staged_at = %s,
+                    shipped_at = %s,
+                    courier = COALESCE(%s, courier)
+                WHERE order_number = %s
+            """, (status, is_pri, deadline, created_at, staged_at, shipped_at, courier, order_num))
+
+        # 2. Shift timestamps for bulk shipped orders (ORD-1059+) so they stay realistic
         if elapsed_secs > 0:
             cur.execute("""
                 UPDATE "order" SET
-                    created_at  = (created_at::timestamp  + (interval '1 second' * %s))::text,
-                    deadline    = CASE WHEN deadline IS NOT NULL
-                                  THEN (deadline::timestamp + (interval '1 second' * %s))::text END,
-                    staged_at   = CASE WHEN staged_at IS NOT NULL
-                                  THEN (staged_at::timestamp + (interval '1 second' * %s))::text END,
-                    shipped_at  = CASE WHEN shipped_at IS NOT NULL
-                                  THEN (shipped_at::timestamp + (interval '1 second' * %s))::text END
-            """, (elapsed_secs, elapsed_secs, elapsed_secs, elapsed_secs))
+                    created_at = (created_at::timestamp + (interval '1 second' * %s))::text,
+                    deadline   = CASE WHEN deadline IS NOT NULL
+                                 THEN (deadline::timestamp + (interval '1 second' * %s))::text END,
+                    shipped_at = CASE WHEN shipped_at IS NOT NULL
+                                 THEN (shipped_at::timestamp + (interval '1 second' * %s))::text END
+                WHERE order_number != ALL(%s)
+            """, (elapsed_secs, elapsed_secs, elapsed_secs, active_order_numbers))
 
-            # Shift issue timestamps
-            cur.execute("""
-                UPDATE issue SET
-                    created_at = (created_at::timestamp + (interval '1 second' * %s))::text
-            """, (elapsed_secs,))
-
-        # Restore stock for secondary-only products (Product 7, 9, 11, 13)
+        # 3. Restore stock for secondary-only products (Product 7, 9, 11, 13)
         cur.execute("""
             UPDATE stock SET quantity = 0 WHERE product_id IN (7, 9, 11, 13) AND warehouse_id = 1;
             UPDATE stock SET quantity = 15 WHERE product_id = 7 AND warehouse_id = 2;
@@ -134,7 +225,7 @@ def _refresh_demo_timestamps():
             UPDATE stock SET quantity = 14 WHERE product_id = 13 AND warehouse_id = 2;
         """)
 
-        # Reset transfers table to fresh demo transfers (multiple in_transit, requested, completed)
+        # 4. Reset transfers table to fresh demo transfers (multiple in_transit, requested, completed)
         cur.execute("DELETE FROM transfer")
         cur.execute("""
             INSERT INTO transfer (product_id, quantity, from_warehouse_id, to_warehouse_id, status, created_at)
@@ -150,25 +241,33 @@ def _refresh_demo_timestamps():
             (now - timedelta(days=2)).isoformat()
         ))
 
-        # Restore test order statuses if previously advanced
+        # 5. Reset issue records (3 open, 2 resolved)
+        issue_resets = [
+            ('ORD-1004', 1, 4.0),
+            ('ORD-1031', 0, 2.0),
+            ('ORD-1018', 0, 1.0),
+            ('ORD-1006', 1, 12.0),
+            ('ORD-1011', 0, 0.5),
+        ]
+        for ord_num, resolved, hours_ago in issue_resets:
+            cur.execute("""
+                UPDATE issue SET
+                    resolved = %s,
+                    created_at = %s
+                WHERE order_id = (SELECT id FROM "order" WHERE order_number = %s)
+            """, (resolved, (now - timedelta(hours=hours_ago)).isoformat(), ord_num))
+
+        # 6. Reset pick verification items on ORD-1022 and ORD-1024
         cur.execute("""
-            UPDATE "order" SET status = 'received'
-            WHERE order_number IN ('ORD-1002', 'ORD-1005', 'ORD-1007', 'ORD-1009', 'ORD-1011', 'ORD-1013', 'ORD-1015');
-
-            UPDATE "order" SET status = 'processing'
-            WHERE order_number IN ('ORD-1017', 'ORD-1018', 'ORD-1019', 'ORD-1021');
-
             UPDATE order_item SET picked_ok = 0
-            WHERE order_id IN (
-                SELECT id FROM "order"
-                WHERE order_number IN (
-                    'ORD-1002', 'ORD-1005', 'ORD-1007', 'ORD-1009', 'ORD-1011', 'ORD-1013', 'ORD-1015',
-                    'ORD-1017', 'ORD-1018', 'ORD-1019', 'ORD-1021'
-                )
-            );
+            WHERE id IN (
+                SELECT oi.id FROM order_item oi
+                JOIN "order" o ON o.id = oi.order_id
+                WHERE o.order_number IN ('ORD-1022', 'ORD-1024')
+            )
         """)
 
-        # Ensure secondary product items are present on test orders
+        # 7. Ensure secondary product items are present on test orders
         test_order_items = [
             ('ORD-1002', 7, 1),
             ('ORD-1005', 9, 1),
@@ -193,11 +292,11 @@ def _refresh_demo_timestamps():
                   )
             """, (pid, qty, ord_num, pid))
 
-        # Update metadata markers
+        # 8. Update metadata markers
         cur.execute("UPDATE metadata SET value = %s WHERE key = 'last_refreshed'", (now.isoformat(),))
         cur.execute("""
-            INSERT INTO metadata (key, value) VALUES ('demo_version', 'v2_transfers')
-            ON CONFLICT (key) DO UPDATE SET value = 'v2_transfers'
+            INSERT INTO metadata (key, value) VALUES ('demo_version', 'v3_tags_refresh')
+            ON CONFLICT (key) DO UPDATE SET value = 'v3_tags_refresh'
         """)
 
         conn.commit()
